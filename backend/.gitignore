@@ -1,0 +1,28 @@
+# Virtual environments
+venv/
+ai-venv/
+.env
+.env.*
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Database file
+*.db
+
+# Model artifacts (optional - commit tflite if you want it in repo)
+# *.tflite
+
+# Logs
+*.log

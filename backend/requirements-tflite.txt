@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-multipart
+tflite-runtime  # lightweight runtime for TFLite models (smaller than full tensorflow)
+numpy
+pillow
+requests
+sqlalchemy

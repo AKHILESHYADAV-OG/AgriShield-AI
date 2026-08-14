@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
-import tensorflow as tf
+# TensorFlow is imported lazily at startup to avoid heavy memory usage on small web dynos
 import numpy as np
 from PIL import Image
 import io
@@ -80,7 +80,7 @@ app.add_middleware(
 
 MODEL_PATH = Path(__file__).parent / "tomato_disease_model.keras"
 
-model = tf.keras.models.load_model(MODEL_PATH)
+model = None
 
 CLASS_NAMES = [
     "Bacterial Spot",
@@ -96,6 +96,101 @@ CLASS_NAMES = [
 ]
 
 IMG_SIZE = (224, 224)
+
+
+# =========================================================
+# MODEL LOADING AT STARTUP
+# =========================================================
+
+@app.on_event("startup")
+async def load_model_on_startup():
+    """Try to load a TFLite model first (very low memory). If not present, attempt to load a Keras model
+    via TensorFlow. Fail gracefully so the web process can start on low-memory instances.
+    """
+    global model, tf, interpreter, model_type, tflite_input_details, tflite_output_details
+
+    model = None
+    interpreter = None
+    model_type = None
+    tflite_input_details = None
+    tflite_output_details = None
+
+    # Prefer a TFLite model if available (tomato_disease_model.tflite)
+    tflite_path = MODEL_PATH.with_suffix('.tflite')
+
+    try:
+        if tflite_path.exists():
+            try:
+                # Prefer the lightweight tflite_runtime if installed
+                try:
+                    from tflite_runtime.interpreter import Interpreter
+                except Exception:
+                    # Fallback to TensorFlow's Interpreter if tensorflow is available
+                    import importlib
+                    tf = importlib.import_module('tensorflow')
+                    from tensorflow.lite import Interpreter
+
+                interpreter = Interpreter(model_path=str(tflite_path))
+                interpreter.allocate_tensors()
+                tflite_input_details = interpreter.get_input_details()
+                tflite_output_details = interpreter.get_output_details()
+                model_type = 'tflite'
+                print(f"✅ TFLite model loaded from {tflite_path}")
+                return
+            except Exception as e:
+                print(f"⚠️ Failed to load TFLite model: {e}")
+
+        # If TFLite not available or failed, attempt to load Keras model via TensorFlow
+        try:
+            import importlib
+            tf = importlib.import_module('tensorflow')
+            model = tf.keras.models.load_model(MODEL_PATH)
+            model_type = 'keras'
+            print(f"✅ Keras model loaded successfully from {MODEL_PATH}")
+        except Exception as e:
+            model = None
+            model_type = None
+            print(f"❌ No model loaded (inference disabled): {e}")
+
+    except Exception as e:
+        # Catch-all to avoid startup crash
+        model = None
+        interpreter = None
+        model_type = None
+        print(f"❌ Unexpected error during model initialization: {e}")
+
+
+# =========================================================
+# PREDICTION HELPERS (supports TFLite and Keras)
+# =========================================================
+
+def predict_image(image_array):
+    """Return predictions array matching Keras model.predict output shape.
+    Supports TFLite Interpreter (preferred) and Keras models.
+    """
+    global model, interpreter, model_type, tflite_input_details, tflite_output_details
+
+    if model_type == 'tflite' and interpreter is not None:
+        # TFLite expects float32 by default for most converted models
+        input_data = image_array.astype(np.float32)
+        idx = tflite_input_details[0]['index']
+        try:
+            interpreter.set_tensor(idx, input_data)
+        except Exception:
+            # Try resizing input tensor to match data shape
+            interpreter.resize_tensor_input(idx, input_data.shape)
+            interpreter.allocate_tensors()
+            interpreter.set_tensor(idx, input_data)
+        interpreter.invoke()
+        output_idx = tflite_output_details[0]['index']
+        predictions = interpreter.get_tensor(output_idx)
+        return predictions
+
+    elif model_type == 'keras' and model is not None:
+        return model.predict(image_array, verbose=0)
+
+    else:
+        return None
 
 
 # =========================================================
@@ -860,6 +955,7 @@ async def analyze_image(
     file: UploadFile = File(...)
 ):
 
+
     try:
 
         # -----------------------------------------
@@ -912,16 +1008,20 @@ async def analyze_image(
             axis=0
         )
 
-
         # -----------------------------------------
-        # AI Prediction
+        # Make Prediction
         # -----------------------------------------
 
-        predictions = model.predict(
-            image_array,
-            verbose=0
-        )
+        predictions = predict_image(image_array)
 
+        if predictions is None:
+            return {
+                "filename": file.filename,
+                "disease": "Model not available",
+                "confidence": 0,
+                "disease_risk": 50,
+                "message": "Model not loaded on this deployment. Provide a .tflite model or deploy a worker with TensorFlow."
+            }
 
         # -----------------------------------------
         # Highest Probability Class
