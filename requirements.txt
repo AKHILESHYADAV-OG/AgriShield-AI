@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-multipart
+tflite-runtime  # use TFLite runtime for low-memory inference (or install full tensorflow on a worker)
+numpy
+pillow
+requests
+sqlalchemy
