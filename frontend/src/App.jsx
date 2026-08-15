@@ -316,7 +316,7 @@ speakAnswer(answer);
       // =================================================
 
       const riskResponse = await fetch(
-        `http://127.0.0.1:8000/risk?crop=${encodeURIComponent(
+        `https://agrishield-ai-backend.onrender.com/risk?crop=${encodeURIComponent(
           crop
         )}&location=${encodeURIComponent(location)}`
       );
@@ -332,10 +332,10 @@ speakAnswer(answer);
       // =================================================
 
       const weatherResponse = await fetch(
-        `http://127.0.0.1:8000/weather?location=${encodeURIComponent(
-          location
-        )}`
-      );
+      `https://agrishield-ai-backend.onrender.com/weather?location=${encodeURIComponent(
+         location
+          )}`
+         );
 
       if (!weatherResponse.ok) {
         throw new Error("Weather analysis failed");
@@ -379,7 +379,7 @@ speakAnswer(answer);
         formData.append("file", image);
 
         const imageResponse = await fetch(
-          "http://127.0.0.1:8000/analyze-image",
+        "https://agrishield-ai-backend.onrender.com/analyze-image",
           {
             method: "POST",
             body: formData,
